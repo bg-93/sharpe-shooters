@@ -39,7 +39,7 @@ def parse_args():
     parser.add_argument(
         "--strategy",
         default="main.py",
-        help="Path to the strategy file containing getMyPosition.",
+        help="Path to the strategy file containing getM yPosition.",
     )
     parser.add_argument(
         "--prices",
