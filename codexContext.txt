@@ -1,0 +1,146 @@
+Challenge Brief
+Your objective is to develop a quantitative trading strategy that maximizes risk-adjusted returns within our simulated market universe.
+
+The Trading Universe
+You are tasked with trading a universe of 51 distinct assets over a sequence of days.
+
+Asset 0: Ticker symbol ALGO.
+Assets 1 through 50: Anonymized financial instruments.
+Assets receive one price update per day. Your algorithm will process this price history and execute buy or sell orders to adjust your portfolio. You are permitted to take both positive (long) and negative (short) positions.
+
+Position Limits
+Risk management is critical. Your dollar position (calculated as current price × absolute share size) in every asset is strictly capped.
+
+Asset	Maximum Position (Long or Short)
+Asset 0 (ALGO)	$100,000
+Assets 1–50	$10,000
+This is a limit on what you hold, not on what you trade, and it is re-checked every single day using that day's price - not just on days you place a new order. The dollar cap itself is fixed, but since it's converted to a share-count ceiling using the current price (max shares = dollar cap ÷ today's price), that ceiling moves with the market. Concretely: if you buy exactly $100,000 of ALGO today and never touch your position again, a price rise tomorrow can still force a partial sell tomorrow, purely from that price movement - even though you placed no new order. Every day, whatever position your algorithm returns (including "no change from yesterday") gets clipped to fit that day's ceiling before it's recorded.
+
+There is no separate limit on how much you can trade in a single day - only the resulting end-of-day position is capped. You could in principle move from the maximum short position to the maximum long position in one day; nothing stops that beyond the commission it would cost you.
+
+There is also no starting capital or total portfolio budget. The only constraint on your risk-taking is the per-instrument position limit above - there is no cap on your combined exposure across the whole portfolio. In principle you could hold the maximum position in every one of the 51 instruments at once; nothing tracks or limits total capital usage across your positions, only how much you hold in any single asset at a time.
+
+Trading Commissions
+To accurately simulate market microstructure, a commission is deducted from your PnL for every dollar traded (both buying and selling).
+
+Asset	Commission Rate
+Asset 0 (ALGO)	0.00002 (0.2 basis points)
+Assets 1–50	0.0001 (1.0 basis point)
+Technical Implementation
+Your algorithm must be contained entirely within a single Python file named teamName.py (replace teamName with your registered team name).
+
+Within this file, you must implement the following function in the global scope:
+
+def getMyPosition(prcSoFar):
+
+Input: prcSoFar is a NumPy array of shape (51, numDays). It contains the full price history of all assets up to the current day. Day 0 is the earliest, and day (numDays - 1) is the most recent.
+Output: The function must return a 1D NumPy vector of exactly 51 integers (positive or negative). These integers represent your desired total share positions for assets 0 through 50 at the end of the current day.
+System & Activity Constraints
+Execution Time Limit: Your algorithm must have a maximum total runtime of 10 minutes (600 seconds) when evaluated against the provided datasets. Submissions that exceed this limit are terminated and scored as a failure.
+Minimum Trading Activity: Your strategy must trade a minimum total dollar volume of $25,000 across the Testing Round's 250-day evaluation window. This is measured as the sum of price × |shares traded| across every trade in the window - not a count of trades, since a trade count can be padded cheaply with many tiny trades. Strategies that fail to meet this threshold are flagged as inactive and receive an automatic score of zero. (The equivalent threshold for the General Round and Finals evaluation windows will be confirmed alongside the rest of that schedule - see Dataset Release Schedule.)
+Accepted Packages
+Your algorithm is graded inside an isolated, network-disabled sandbox. Without declaring anything, teamName.py may import:
+
+numpy
+pandas
+scipy
+scikit-learn
+statsmodels
+matplotlib
+If you need a package outside this list, declare it in a requirements.txt alongside your submission - see the Submission Guide for packaging details. Note that network access is disabled at grading time, so packages that rely on making network calls (e.g. to download data) will not function inside getMyPosition, declared or not.
+
+Getting Started
+To successfully participate in the Algothon, you will need to set up a local development environment capable of handling data analysis and backtesting.
+
+1. The Starter Code
+All necessary data and the evaluation engine have been pre-packaged into our official GitHub repository. We highly recommend cloning this repository to use as the baseline for your algorithm.
+
+Navigate to the Algothon 2026 GitHub Repository.
+Clone the repository to your local machine.
+The repository will contain:
+prices.txt: The training data.
+eval.py: The official evaluation script used by our judges.
+teamName.py: A boilerplate file for your algorithm.
+requirements-dev.txt: The exact package set available at grading time - for setting up your local environment only, do not include this file in your submission.
+2. Local Environment Setup
+We recommend Python 3.12. For local development you're free to use whatever tools you like (Anaconda, a plain venv, Poetry, etc.) - but the packages actually available when your algorithm is graded are a fixed, explicit set, not the full Anaconda distribution. See Accepted Packages for the exact list.
+
+To minimise "works on my machine, fails on submission" surprises, we recommend matching the grading environment locally using the requirements-dev.txt from the starter repo:
+
+python -m venv .venv
+.venv\Scripts\activate      # Windows
+source .venv/bin/activate   # macOS/Linux
+pip install -r requirements-dev.txt
+If your own algorithm needs a package beyond this list, do not add it to requirements-dev.txt - create a separate requirements.txt listing only the extra package(s) and include that in your submission .zip instead. See the Submission Guide for details.
+
+3. Testing Your Algorithm
+Before submitting your model to the live leaderboard, you must ensure it executes correctly against the provided evaluation script.
+
+Run your code locally using:
+
+python eval.py
+If your code does not compile or throws errors when run against eval.py, it will automatically fail on the competition servers.
+
+Scoring & Evaluation
+Your algorithm is not evaluated on absolute profit alone. We utilize a risk-adjusted utility function designed to reward consistent returns and heavily penalize volatility.
+
+The Objective Function
+Your final score is calculated using the following piecewise function:
+
+
+
+Where:
+
+
+How it works: If your strategy loses money on average (
+), your score is simply your mean daily loss. If your strategy is profitable (
+) with meaningful variance in daily PL, your mean profit is scaled by a factor of
+
+. Strategies with high returns but massive volatility (low SR) will see their scores severely discounted. If your daily PL has almost no variance (
+, e.g. a near-constant tiny gain every day), the Sharpe scaling is skipped and your score is just
+ directly - this mainly matters for strategies sitting right at the minimum trading activity threshold.
+
+Judging Criteria
+In the final round, your performance is assessed on both quantitative results and qualitative methodology:
+
+Quantitative Performance (50%): Assessed using the Objective Function above against unseen, out-of-sample data.
+Technical Presentation (50%): Finalists present their methodology to a panel of researchers and traders. Judges evaluate:
+Clarity of technical maturity and strategy logic.
+Quality of communication and presentation style.
+Team cohesion and Q&A responsiveness.
+Dataset Release Schedule
+The evaluation utilizes a total of 2,000 days of simulated price data, released in stages to test out-of-sample performance and prevent overfitting. At every stage, the live leaderboard is always scored on days you have not been given yet - never on data already sitting in your local prices.txt - so the leaderboard reflects real predictive performance rather than hindsight.
+
+Confirmed so far:
+
+Date	Stage	You receive locally	Leaderboard/scoring window	Window size
+July 8	Testing Round starts	Days 1–500	Days 501–750 (hidden)	250 days
+The exact release structure for the General Round and Finals - including how much data is released at each step and how the leaderboard window moves - is still being finalised. This section will be updated once that's confirmed, ahead of the General Round starting. In broad terms: expect further stages to release progressively more historical data while continuing to score you on days you haven't seen yet, working toward the full 2,000-day dataset by the end of Finals.
+
+Submission Guide
+All algorithm submissions will be processed through our official portal. Please read these packaging instructions carefully—improperly formatted submissions will be automatically rejected by the evaluation server.
+
+Code Formatting Requirements
+File Naming: Your entry file must be named teamName.py (e.g., if your team is "AlphaQuant", your file must be AlphaQuant.py).
+Function Signature: The file must contain the function def getMyPosition(prcSoFar): in the global scope.
+No External Data: Your algorithm must not attempt to download external data, scrape websites, or read local files other than the inputs explicitly passed to getMyPosition.
+Packaging Your Submission
+You must submit your code as a .zip file containing your repository.
+
+Do not nest the folder. When the .zip file is unpacked, it should immediately expose your teamName.py file (and requirements.txt if applicable), not another folder.
+
+Non-Standard Packages: If you are using libraries outside the accepted package list (numpy, pandas, scipy, scikit-learn, statsmodels, matplotlib), you must include a valid requirements.txt file in your .zip. Failure to declare non-standard packages will result in a runtime error on our servers and immediate disqualification. Note network access is disabled during grading, so packages requiring internet access will not function regardless of declaration.
+
+Your requirements.txt should list only the extra package(s) beyond the accepted list - one per line, an exact version pin is optional but recommended. For example, if your algorithm uses xgboost and a specific version of lightgbm:
+
+requirements.txt
+xgboost
+lightgbm==4.5.0
+Do not list accepted packages
+
+Do not include numpy, pandas, scipy, scikit-learn, statsmodels, or matplotlib in your requirements.txt - these are already pinned in the grading environment, and redeclaring them (even at the same version) will cause your submission to be rejected. If you set up your local environment using the starter repo's requirements-dev.txt, do not submit that file - it lists the full accepted set for local testing, not your submission's extras.
+
+Where to Submit
+All rounds submit through the same portal:
+
+Live Leaderboard: Submit Here (opens July 8)
