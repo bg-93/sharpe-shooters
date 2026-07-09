@@ -15,4 +15,3 @@ scikit-learn
 statsmodels
 matplotlib
 streamlit
-plotly
