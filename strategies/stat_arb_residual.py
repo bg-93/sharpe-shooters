@@ -27,8 +27,12 @@ BETA_WINDOW = 120        # days for beta estimation
 VOL_WINDOW = 30          # days for residual vol estimation
 REV_HORIZONS = (20, 60)  # ensemble of cumulative-residual lookbacks
 Z_CAP = 2.5              # clamp extreme z-scores
-GROSS_STOCK = 90_000.0   # total gross dollar budget across the stock book
-PER_NAME_CAP = 9_000.0   # stay inside the $10k per-stock limit with margin
+# Gross sizing: score = mean * SR^2/(SR^2+1) is linear in scale while SR is
+# scale-invariant, so run the book as large as possible. SR only degrades once
+# the $10k/name limit clips the strongest signals; 220k-280k gross was a
+# score plateau on both validation segments, 300k+ collapsed. Centre = 250k.
+GROSS_STOCK = 250_000.0  # total gross dollar budget across the stock book
+PER_NAME_CAP = 9_900.0   # stay inside the $10k per-stock limit with margin
 REBALANCE_BAND = 0.40    # skip trades smaller than this fraction of target
 MIN_HISTORY = BETA_WINDOW + max(REV_HORIZONS) + 5
 
