@@ -14,7 +14,7 @@ DEFAULT_POSITION_LIMIT = 10000.0
 
 
 def load_prices(path):
-    df = pd.read_csv(path, sep=r"\s+", header=None)
+    df = pd.read_csv(path, sep=r"\s+", header=0)
     return df.values.T.astype(float)
 
 
