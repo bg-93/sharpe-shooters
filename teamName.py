@@ -24,6 +24,24 @@ SIGNAL_SCALE = 1.2
 POSITION_MULT = 2.0
 MIN_ABS_SIGNAL = 0.25
 
+# Hysteresis: once a position is on, keep it while the signal stays on the
+# same side above a lower exit threshold, instead of flattening the moment
+# it dips under the entry threshold. Saves commission on in-and-out churn.
+EXIT_ABS_SIGNAL = 0.20
+
+# Dollar dead-band: skip retrades when the new target barely moves.
+DEAD_BAND_FRAC = 0.15
+
+# Persistent state across days (backtester calls reset_state between runs).
+_prev_target_dollars = np.zeros(N_INST)
+_prev_nt = -1
+
+
+def reset_state():
+    global _prev_target_dollars, _prev_nt
+    _prev_target_dollars = np.zeros(N_INST)
+    _prev_nt = -1
+
 # Selected from released data using standalone mean-reversion quality.
 # ALGO is included, plus the strongest non-ALGO names from the 500-day sample.
 CORE_ASSETS = np.array([
@@ -44,10 +62,17 @@ TREND_CUT = 0.50
 
 
 def getMyPosition(prcSoFar):
+    global _prev_target_dollars, _prev_nt
+
     nInst, nt = prcSoFar.shape
 
     if nInst != N_INST:
         return np.zeros(nInst, dtype=int)
+
+    # Detect a fresh run (history restarted) and reset state.
+    if nt <= _prev_nt:
+        reset_state()
+    _prev_nt = nt
 
     # Need enough history for 30-day mean reversion.
     if nt < SLOW_LB + 1:
@@ -70,7 +95,16 @@ def getMyPosition(prcSoFar):
     signal = FAST_WEIGHT * z_fast + (1.0 - FAST_WEIGHT) * z_slow
 
     # Avoid weak/noisy signals that mostly add turnover.
-    signal = np.where(np.abs(signal) >= MIN_ABS_SIGNAL, signal, 0.0)
+    # Hysteresis: new positions require |signal| >= MIN_ABS_SIGNAL, but an
+    # existing position on the same side survives down to EXIT_ABS_SIGNAL.
+    holding_side = np.sign(_prev_target_dollars)
+    keep = (
+        (holding_side != 0)
+        & (np.sign(signal) == holding_side)
+        & (np.abs(signal) >= EXIT_ABS_SIGNAL)
+    )
+    active = (np.abs(signal) >= MIN_ABS_SIGNAL) | keep
+    signal = np.where(active, signal, 0.0)
 
     # Start with full signal-based desired dollar exposures.
     target_dollars = LIMITS * np.tanh(SIGNAL_SCALE * signal) * POSITION_MULT
@@ -126,6 +160,17 @@ def getMyPosition(prcSoFar):
             )
 
         target_dollars *= asset_scale * global_scale
+
+    # Dollar dead-band: if the target barely moved, keep yesterday's target
+    # instead of paying commission on a marginal adjustment. Full exits
+    # (target 0 from an active flatten) always go through.
+    small_change = (
+        (np.abs(target_dollars - _prev_target_dollars) < DEAD_BAND_FRAC * LIMITS)
+        & (target_dollars != 0.0)
+    )
+    target_dollars = np.where(small_change, _prev_target_dollars, target_dollars)
+
+    _prev_target_dollars = target_dollars.copy()
 
     target_shares = target_dollars / cur
     return target_shares.astype(int)

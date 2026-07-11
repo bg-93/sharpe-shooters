@@ -22,8 +22,31 @@ Local experiments on the provided `prices.txt` were run with the official `eval.
 - Pure residual-only or heavy beta-neutral books were cleaner statistically, but weaker economically on the local sample.
 - Synthetic-index and ALGO-prediction sleeves were directionally interesting, but only added small gains relative to the simpler residual overlay.
 
+## Prosperity-4 README Ideas (2026-07-12)
+
+Tested ideas borrowed from `IMC-Prosperity-4-main-strat/README.md`:
+
+- **Hysteresis + dollar dead-band (adopted)**: enter at |z| >= 0.25, hold an
+  existing position down to |z| >= 0.20 on the same side, and skip retrades
+  smaller than 15% of the instrument limit. Eval score 373.15 -> 377.99;
+  survived three chronological windows (early/mid/late). Gains are modest
+  because fees are only 1bp, but turnover dropped too.
+- **EV-proxy asset ranking (rejected)**: ranked all 51 names by
+  `(sigma/cost) / half_life` on days 0-249 (`backtesting/rank_assets.py`).
+  The top-20 EV list scored 275.96 OOS on days 250-500 vs 377.99 for the
+  existing hand-picked CORE_ASSETS, so the current list stays. The proxy
+  captures reversion speed vs cost but not predictability.
+- **Per-asset PnL decomposition (adopted as tooling)**: `backtest.py
+  --per-asset` splits PnL into carry vs commission per instrument. On the
+  full sample all 20 core names are net-positive; on the last 250 days only
+  17 and 39 were slightly negative (kept: removing them hurt the OOS score
+  via diversification loss).
+- **Chronological OOS validation (process rule)**: any retuned parameter must
+  survive train-early/test-late splits, not just the full sample.
+
 ## Current Implementation
 
 - Raw 8-day and 30-day mean reversion still drives the main target book.
+- Hysteresis (entry 0.25 / exit 0.20) and a 15%-of-limit dead-band cut churn.
 - A beta-adjusted residual signal versus ALGO is computed for assets `1-50`.
 - Only the top 3 residual dislocations receive an extra sizing boost, capped by each instrument's normal limit.

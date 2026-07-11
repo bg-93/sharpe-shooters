@@ -81,6 +81,11 @@ def parse_args():
         action="store_true",
         help="Print per-day PnL and exposure details.",
     )
+    parser.add_argument(
+        "--per-asset",
+        action="store_true",
+        help="Print per-instrument PnL decomposition (carry vs commission) and turnover.",
+    )
     return parser.parse_args()
 
 
@@ -111,11 +116,26 @@ def backtest(prices, strategy_module, start_day, end_day, commission_rate, posit
     daily_pl = []
     daily_records = []
 
+    # Per-asset decomposition accumulators.
+    # carry = sum over days of pos * price change (directional PnL at mid).
+    # Since fills happen at the current price, net PnL per asset = carry - commission.
+    asset_carry = np.zeros(n_inst)
+    asset_commission = np.zeros(n_inst)
+    asset_volume = np.zeros(n_inst)
+    asset_trade_days = np.zeros(n_inst, dtype=int)
+    prev_prices = None
+
     loop_start = time.perf_counter()
 
     for day in range(start_day, end_day + 1):
         prc_so_far = prices[:, : day + 1]
         cur_prices = prc_so_far[:, -1]
+
+        # Carry accrues on positions held overnight into today.
+        if prev_prices is not None:
+            asset_carry += cur_pos * (cur_prices - prev_prices)
+        prev_prices = cur_prices
+
         requested_pos = np.array(cur_pos, copy=True)
         clipped_pos = np.array(cur_pos, copy=True)
         commission = 0.0
@@ -136,6 +156,10 @@ def backtest(prices, strategy_module, start_day, end_day, commission_rate, posit
             commission = day_volume * commission_rate
             total_volume += day_volume
             cash -= float(cur_prices.dot(delta_pos)) + commission
+
+            asset_commission += traded_dollars * commission_rate
+            asset_volume += traded_dollars
+            asset_trade_days += (delta_pos != 0).astype(int)
         else:
             delta_pos = np.zeros(n_inst, dtype=int)
 
@@ -210,7 +234,32 @@ def backtest(prices, strategy_module, start_day, end_day, commission_rate, posit
         "win_rate": win_rate,
         "runtime_seconds": runtime_seconds,
         "daily_records": daily_records,
+        "asset_carry": asset_carry,
+        "asset_commission": asset_commission,
+        "asset_volume": asset_volume,
+        "asset_trade_days": asset_trade_days,
     }
+
+
+def print_per_asset(result):
+    carry = result["asset_carry"]
+    comm = result["asset_commission"]
+    vol = result["asset_volume"]
+    tdays = result["asset_trade_days"]
+    net = carry - comm
+    print("==== Per-Asset PnL Decomposition ====")
+    print(f"{'inst':>4} {'carry':>12} {'commission':>12} {'net':>12} {'volume':>14} {'trade_days':>10}")
+    for i in np.argsort(net)[::-1]:
+        if vol[i] == 0:
+            continue
+        print(f"{i:>4} {carry[i]:>12.2f} {comm[i]:>12.2f} {net[i]:>12.2f} {vol[i]:>14.0f} {tdays[i]:>10d}")
+    traded = vol > 0
+    print("-----")
+    print(
+        f"Totals: carry {carry.sum():.2f} | commission {comm.sum():.2f} | "
+        f"net {net.sum():.2f} | instruments traded {int(traded.sum())} | "
+        f"net-negative instruments {int(np.sum(net[traded] < 0))}"
+    )
 
 
 def print_summary(result, strategy_path, prices_path, commission_rate, position_limit):
@@ -267,6 +316,8 @@ def main():
         commission_rate=args.commission_rate,
         position_limit=args.position_limit,
     )
+    if args.per_asset:
+        print_per_asset(result)
 
 
 if __name__ == "__main__":
