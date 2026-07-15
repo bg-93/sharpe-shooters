@@ -148,6 +148,17 @@ apparently reuses.
   is optimal; FSMs belong on the slow signals (pairs 1.5/0.5, hysteresis
   0.25/0.20) where they already are.
 
+## Regime FSM (2026-07-15, adopted)
+
+Converted the three emergency regime guards (market vol shock, per-asset
+vol shock, trend) from stateless daily conditions to finite state
+machines: enter stress at DANGER (vol ratio 2.0 / trend z 2.5), exit
+only below the lower EXIT threshold (1.5). Locally near-neutral
+(eval 617.25 -> 618.68, early -3, reversed -10 — noise) because the
+guards rarely fire on the released days; the point is defensive: after
+a real shock on hidden data, the stateless guards re-risked the next
+day, the FSM stays cut until vol genuinely normalises.
+
 ## Current Implementation
 
 - Raw 8-day and 30-day mean reversion still drives the main target book.
