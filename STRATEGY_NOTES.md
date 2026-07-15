@@ -129,6 +129,25 @@ apparently reuses.
   reversed 344 -> 688. Sleeve added after the dead-band (needs daily
   rebalance; fees ~1bp are negligible vs the IC).
 
+## Architecture Ablations (2026-07-15, `backtesting/fsm_experiment.py`)
+
+- **ALGO fade sizing**: fade is worth ~+4.5 eval points at cap $60k; caps of
+  $100k or bigger scales do NOT help (edge is 20-40d reversion, ~6-12
+  independent bets/250d — more size adds variance, not signal). ALGO's
+  $100k limit is already heavily monetised by the lead-lag sleeve
+  ($992/day dollar-vol vs $212 for a maxed stock). Giving the fade
+  priority over lead-lag on ALGO trades small early-window gains for a
+  688->628 reversed-window loss. Keep cap $60k.
+- **Pure "pairs + MLR + FSM" book (rejected)**: dropping the MR core and
+  fade costs 147 eval points (617 -> 470) and 55 early points. The MR
+  core earns its keep alongside the lead-lag sleeve.
+- **FSM dead-zone on the lead-lag sleeve (rejected)**: entry/exit bands
+  on the prediction z (0.1-0.3) strictly hurt (eval 617 -> 601/545/540).
+  The ridge forecast refreshes daily and fees are 1bp, so holding
+  yesterday's state means holding a stale forecast. Daily sign-flipping
+  is optimal; FSMs belong on the slow signals (pairs 1.5/0.5, hysteresis
+  0.25/0.20) where they already are.
+
 ## Current Implementation
 
 - Raw 8-day and 30-day mean reversion still drives the main target book.
