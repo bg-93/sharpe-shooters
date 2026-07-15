@@ -101,6 +101,11 @@ _prev_target_dollars = np.zeros(N_INST)
 _prev_nt = -1
 _pair_pos = [0] * len(PAIRS)
 
+# Regime FSM state (True = stressed).
+_reg_mkt_stress = False
+_reg_vol_stress = np.zeros(N_INST, dtype=bool)
+_reg_trend_stress = np.zeros(N_INST, dtype=bool)
+
 # Lead-lag sleeve state.
 _ll_W = None
 _ll_mu = None
@@ -114,11 +119,15 @@ _ll_pending = None  # yesterday's prediction awaiting realisation
 
 def reset_state():
     global _prev_target_dollars, _prev_nt, _pair_pos
+    global _reg_mkt_stress, _reg_vol_stress, _reg_trend_stress
     global _ll_W, _ll_mu, _ll_sd, _ll_resid_sd, _ll_last_fit
     global _ll_wf_preds, _ll_wf_reals, _ll_pending
     _prev_target_dollars = np.zeros(N_INST)
     _prev_nt = -1
     _pair_pos = [0] * len(PAIRS)
+    _reg_mkt_stress = False
+    _reg_vol_stress = np.zeros(N_INST, dtype=bool)
+    _reg_trend_stress = np.zeros(N_INST, dtype=bool)
     _ll_W = None
     _ll_mu = None
     _ll_sd = None
@@ -185,15 +194,21 @@ CORE_ASSETS = np.array([
     36, 21, 41, 13, 17, 16, 19, 39, 27, 32
 ], dtype=int)
 
-# Mild regime guard settings. These only activate on genuinely abnormal moves.
+# Regime guards as finite state machines. Entering a stress state requires
+# the DANGER threshold; leaving it requires falling below the (lower) EXIT
+# threshold, so the book does not whipsaw risk-on/risk-off when a ratio
+# hovers at the boundary. Stateless daily guards re-risked one day after a
+# shock; the FSM stays cut until conditions genuinely normalise.
 RECENT_VOL_WIN = 10
 BASE_VOL_WIN = 80
 VOL_DANGER = 2.0
+VOL_EXIT = 1.5
 VOL_CUT = 0.65
 
 TREND_WIN = 20
 TREND_LOOKBACK = 60
 TREND_DANGER = 2.5
+TREND_EXIT = 1.5
 TREND_CUT = 0.50
 
 
@@ -252,8 +267,10 @@ def getMyPosition(prcSoFar):
     target_dollars *= mask
 
     # ------------------------------------------------------------
-    # Emergency regime guards
+    # Emergency regime guards (finite state machines: enter stress at
+    # DANGER, exit only below the lower EXIT threshold)
     # ------------------------------------------------------------
+    global _reg_mkt_stress, _reg_vol_stress, _reg_trend_stress
     if nt > BASE_VOL_WIN + RECENT_VOL_WIN + 1:
         log_prices = np.log(np.maximum(prcSoFar, EPS))
         log_rets = np.diff(log_prices, axis=1)
@@ -261,25 +278,31 @@ def getMyPosition(prcSoFar):
         asset_scale = np.ones(nInst, dtype=float)
         global_scale = 1.0
 
-        # 1. ALGO/index volatility shock guard.
-        # If the index volatility suddenly doubles, reduce the whole book.
+        # 1. ALGO/index volatility shock FSM (whole-book).
         recent_market_vol = log_rets[0, -RECENT_VOL_WIN:].std()
         base_market_vol = log_rets[0, -(BASE_VOL_WIN + RECENT_VOL_WIN):-RECENT_VOL_WIN].std()
 
         if base_market_vol > 1e-8:
             market_vol_ratio = recent_market_vol / base_market_vol
             if market_vol_ratio > VOL_DANGER:
-                global_scale *= VOL_CUT
+                _reg_mkt_stress = True
+            elif market_vol_ratio < VOL_EXIT:
+                _reg_mkt_stress = False
+        if _reg_mkt_stress:
+            global_scale *= VOL_CUT
 
-        # 2. Per-asset volatility shock guard.
+        # 2. Per-asset volatility shock FSM.
         recent_asset_vol = log_rets[:, -RECENT_VOL_WIN:].std(axis=1)
         base_asset_vol = log_rets[:, -(BASE_VOL_WIN + RECENT_VOL_WIN):-RECENT_VOL_WIN].std(axis=1)
         vol_ratio = recent_asset_vol / np.where(base_asset_vol > 1e-8, base_asset_vol, 1.0)
-        asset_scale *= np.where(vol_ratio > VOL_DANGER, VOL_CUT, 1.0)
+        _reg_vol_stress = np.where(
+            vol_ratio > VOL_DANGER, True,
+            np.where(vol_ratio < VOL_EXIT, False, _reg_vol_stress),
+        )
+        asset_scale *= np.where(_reg_vol_stress, VOL_CUT, 1.0)
 
-        # 3. Trend guard.
-        # Mean reversion loses when we fight a strong persistent trend, so cut
-        # exposure when our signal points against a high-z trend.
+        # 3. Trend FSM. The state tracks whether a strong persistent trend
+        # exists; the cut applies only while our signal fights it.
         if nt > TREND_LOOKBACK + TREND_WIN:
             recent_trend = log_prices[:, -1] - log_prices[:, -TREND_WIN - 1]
             daily_vol = log_rets[:, -TREND_LOOKBACK:].std(axis=1)
@@ -289,9 +312,13 @@ def getMyPosition(prcSoFar):
                 1.0
             )
 
+            _reg_trend_stress = np.where(
+                np.abs(trend_z) > TREND_DANGER, True,
+                np.where(np.abs(trend_z) < TREND_EXIT, False, _reg_trend_stress),
+            )
             fighting_trend = signal * trend_z < 0
             asset_scale *= np.where(
-                fighting_trend & (np.abs(trend_z) > TREND_DANGER),
+                fighting_trend & _reg_trend_stress,
                 TREND_CUT,
                 1.0
             )
