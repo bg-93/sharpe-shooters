@@ -6,7 +6,7 @@ Participants: write getMyPosition(prcSoFar) in sharpe-shooters.py and update the
 
 import numpy as np
 import pandas as pd
-from teamName import getMyPosition as getPosition
+from teamName_triple_pairs import getMyPosition as getPosition
 
 nInst = 0
 nt = 0
