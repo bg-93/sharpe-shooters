@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Algothon 2026 evaluation script.
 
-Participants: write getMyPosition(prcSoFar) in sharpe-shooters.py and update the imports below
+Participants: write getMyPosition(prcSoFar) in teamName.py and update the imports below
 """
 
 import numpy as np
@@ -67,20 +67,20 @@ def calcPL(prcHist, numTestDays):
     """
     Function to loop over days and calculate/store PnLs
     """
-
+    
     # initial values
     cash = 0
     curPos = np.zeros(nInst)
     totDVolume = 0
     value = 0
     comm = 0
-
+    
     todayPLL = []
     _, nt = prcHist.shape
     # start day is the first day to run getPosition() on
     # e.g. startDay=500 if last 250 of 750 days used as test days
     startDay = nt - numTestDays
-
+    
     for t in range(startDay, nt + 1):
         # price history up to and including t, e.g. if t=500, gets first 500 days
         prcHistSoFar = prcHist[:, :t]
@@ -100,7 +100,7 @@ def calcPL(prcHist, numTestDays):
 
         # change in positions
         deltaPos = newPos - curPos
-
+        
         cash -= curPrices.dot(deltaPos) + comm
 
         # calculate commissions
@@ -108,12 +108,12 @@ def calcPL(prcHist, numTestDays):
         dvolume = np.sum(dvolumes)
         totDVolume += dvolume
         comm = chargeFees(dvolumes, commRate)
-
+            
         curPos = np.array(newPos)
         posValue = curPos.dot(curPrices)
         # PnL is the daily change in portfolio value (cash plus positions)
         todayPL = cash + posValue - value
-
+        
         value = cash + posValue
 
         # calculate return (portfolio value over total dollar volume)
@@ -127,7 +127,7 @@ def calcPL(prcHist, numTestDays):
                 f"Day {t} value: {value:.2f} todayPL: ${todayPL:.2f} $-traded: {totDVolume:.0f} return: {ret:.5f}"
             )
             todayPLL.append(todayPL)
-
+            
     pll = np.array(todayPLL)
     plmu, plstd = (np.mean(pll), np.std(pll))
 
@@ -135,7 +135,7 @@ def calcPL(prcHist, numTestDays):
     annSharpe = 0.0
     if plstd > 0:
         annSharpe = np.sqrt(250) * plmu / plstd
-
+        
     return (plmu, ret, plstd, annSharpe, totDVolume)
 
 meanpl, ret, plstd, sharpe, dvol = calcPL(prcAll, numTestDays)

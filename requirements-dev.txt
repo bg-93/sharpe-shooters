@@ -14,4 +14,3 @@ scipy
 scikit-learn
 statsmodels
 matplotlib
-streamlit
