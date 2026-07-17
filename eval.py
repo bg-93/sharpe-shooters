@@ -6,7 +6,8 @@ Participants: write getMyPosition(prcSoFar) in sharpe-shooters.py and update the
 
 import numpy as np
 import pandas as pd
-from teamName import getMyPosition as getPosition
+# from teamName import getMyPosition as getPosition
+import sys; sys.path.insert(0, "strategies/next round testing code (research)"); from candidate_next import getMyPosition
 
 nInst = 0
 nt = 0
@@ -89,7 +90,7 @@ def calcPL(prcHist, numTestDays):
         # trading loop, do not do it on the very last day of the test
         if t < nt:
             # get new positions
-            newPosOrig = getPosition(prcHistSoFar)
+            newPosOrig = getMyPosition(prcHistSoFar)
 
             # clip to position limits, and enforce integer shares
             posLimits = (dlrPosLimit / curPrices).astype(int)

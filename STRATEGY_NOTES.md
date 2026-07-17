@@ -159,11 +159,73 @@ guards rarely fire on the released days; the point is defensive: after
 a real shock on hidden data, the stateless guards re-risked the next
 day, the FSM stays cut until vol genuinely normalises.
 
-## Current Implementation
+## True OOS Reckoning (2026-07-16, days 501-750 released)
 
-- Raw 8-day and 30-day mean reversion still drives the main target book.
-- A lead-lag sleeve (online ridge, walk-forward IC mask, sign sizing at
-  full limits, pair-owned names excluded) is added after the dead-band.
-- Hysteresis (entry 0.25 / exit 0.20) and a 15%-of-limit dead-band cut churn.
-- A beta-adjusted residual signal versus ALGO is computed for assets `1-50`.
-- Only the top 3 residual dislocations receive an extra sizing boost, capped by each instrument's normal limit.
+prices.txt extended to 750 days: days 501-750 are the previously hidden
+testing-round window (first 500 days numerically identical). eval.py now
+scores 501-750. Component decomposition on this genuinely unseen data:
+
+| Book                          | OOS 501-750 | old 250-500 |
+|-------------------------------|------------:|------------:|
+| full 618 book (MR+fade+pairs+LL) |    127.70 |      618.68 |
+| MR core only                  |  -86/day    |      strong |
+| fade only                     |      6.39   |        ~4.5 |
+| pairs only                    |    158.61   |         ~60 |
+| lead-lag only                 |    245.80   |     200-230 |
+| **LL(masked)+pairs, no excl** | **484.81**  |  **438.19** |
+
+Conclusions (adopted):
+- **MR core is DEAD**: -86/day on true OOS. The CORE_ASSETS selection
+  and MR params were overfit to the released 500 days — this is what
+  produced the -45.9/day testing-round result. `CORE_ASSETS` emptied.
+- **Fade dropped**: re-tested inside the new book — 484.81 off vs
+  484.58 (30k) / 483.33 (60k). `ALGO_FADE_CAP = 0`.
+- **Pair-owned exclusion removed from lead-lag**: variant grid
+  (mask x exclusion, scored by min across both windows) picked
+  masked + no-exclusion (484.81|438.19) over masked+excl (422|470),
+  unmasked+excl (585|345), unmasked+noexcl (626|300). The unmasked
+  variants were rejected despite higher new-window scores — selecting
+  on one window is the exact mistake that killed the MR core.
+- Regime FSMs / hysteresis / dead-band retained (inert on the MR side
+  now, dead-band still cuts pair/LL churn interaction; harmless).
+
+NOTE: the LL+pairs rebuild above was reverted from teamName.py on
+2026-07-17 — the live submission (Score-1k file, full 618-era book)
+scored ~1000 on the leaderboard window 751-1000, so it stays untouched
+this round. The rebuild survives as a benchmark in
+`strategies/next round testing code (research)/research.py`.
+
+## Quartercode Study (2026-07-17, research folder)
+
+`quartercode.webp` (repo root) is a screenshot of a top performer's
+~60-line strategy: an ensemble of sleeve signals (multi-horizon MR
+"SLOWBOOK", pairs, basket residual), **cross-sectionally demeaned**
+(`pred -= pred.mean()`), z-scored, sized `tanh(z / TEMP)`, with
+`f[0] = f[1:].mean()` for ALGO. Demeaning makes the book dollar-neutral
+-> kills market beta -> slashes std -> the score formula rewards it.
+
+Replica + hybrids in `strategies/next round testing code (research)/`
+(quarter_style.py, research.py). All scores min across three windows
+(early 100-300 | old 250-500 | true-OOS 500-750), eval-exact fees:
+
+- Faithful replica (slowbook+pairs+basket): min 148. Its cross-
+  sectional MR and basket sleeves are weak on our data (slowbook-only
+  min 53, basket-only min 11); its pairs formulation min 255.
+- **Hybrid B (ADOPTED as candidate): pairs + demeaned tanh lead-lag**:
+  take our LL sleeve, demean z across names, re-standardise, size
+  `LIMITS * tanh(z/0.35)`, DROP the WF-IC mask and pair exclusion.
+  Scores **531.67 | 580.74 | 654.36, min 531.67** vs LL+pairs sign/
+  masked baseline min 438.19 and live book min 127.70.
+  - TEMP plateau is broad (0.25-0.45 all min ~530) — not a knife-edge.
+  - Removing the IC mask HELPS here (+37 min): tanh already
+    down-weights weak names continuously; the hard mask threw away
+    information. (Unmasked *sign* sizing was rightly rejected earlier
+    — 626|300 — demeaning+tanh is what fixes its std problem.)
+  - Slowbook/basket sleeves add nothing on top (475/457 min). Rejected.
+- Standalone candidate file: `candidate_next.py` (pairs FSM + demeaned
+  tanh LL only, ~130 lines, no MR/fade/regime/dead-band). Verified
+  reproduces: 531.71 | 580.72 | 654.36.
+
+Decision: teamName.py unchanged this round (live 1k). When days
+751-1000 drop, validate candidate_next.py on that fourth window before
+swapping it in for the next hidden window (1001-1250).
