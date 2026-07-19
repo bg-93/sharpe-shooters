@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-import teamName_triple_pairs as strategy
+import strategies.teamName_triple_pairs as strategy
 
 NUM_TEST_DAYS = 250
 COMM_RATE = np.array([0.00002] + [0.0001] * 50, dtype=float)
