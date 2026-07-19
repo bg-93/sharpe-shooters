@@ -1,3 +1,4 @@
+# PROBE: MR core + regime FSMs only (Score-1k minus pairs/LL/fade)
 import numpy as np
 import numpy as np
 
@@ -41,7 +42,7 @@ DEAD_BAND_FRAC = 0.15
 ALGO_FADE_LB = 40
 ALGO_FADE_VOL_WIN = 60
 ALGO_FADE_SCALE = 2.5
-ALGO_FADE_CAP = 60_000.0
+ALGO_FADE_CAP = 0.0
 
 # ------------------------------------------------------------------
 # Pairs-trading sleeve.
@@ -69,7 +70,7 @@ PAIRS = (
     (36, 41, 0.9137),
     (35, 42, 0.9163),
 )
-PAIR_LEG = 9_000.0
+PAIR_LEG = 0.0
 PAIR_ROLL = 60
 PAIR_ENTRY = 1.5
 PAIR_EXIT = 0.5
@@ -92,7 +93,7 @@ PAIR_OWNED = sorted({i for i, _, _ in PAIRS} | {j for _, j, _ in PAIRS})
 # ------------------------------------------------------------------
 LL_LAM = 400.0
 LL_RETRAIN = 50
-LL_MIN_HIST = 120
+LL_MIN_HIST = 10**9
 LL_IC_MIN_OBS = 60
 LL_SEL_IC = 0.0
 

@@ -1,3 +1,4 @@
+# PROBE: ALGO fade only (Score-1k minus MR/pairs/LL)
 import numpy as np
 import numpy as np
 
@@ -69,7 +70,7 @@ PAIRS = (
     (36, 41, 0.9137),
     (35, 42, 0.9163),
 )
-PAIR_LEG = 9_000.0
+PAIR_LEG = 0.0
 PAIR_ROLL = 60
 PAIR_ENTRY = 1.5
 PAIR_EXIT = 0.5
@@ -92,7 +93,7 @@ PAIR_OWNED = sorted({i for i, _, _ in PAIRS} | {j for _, j, _ in PAIRS})
 # ------------------------------------------------------------------
 LL_LAM = 400.0
 LL_RETRAIN = 50
-LL_MIN_HIST = 120
+LL_MIN_HIST = 10**9
 LL_IC_MIN_OBS = 60
 LL_SEL_IC = 0.0
 
@@ -189,10 +190,7 @@ def _leadlag_target_dollars(prcSoFar):
 
 # Selected from released data using standalone mean-reversion quality.
 # ALGO is included, plus the strongest non-ALGO names from the 500-day sample.
-CORE_ASSETS = np.array([
-    0, 35, 40, 5, 37, 29, 22, 14, 10, 44,
-    36, 21, 41, 13, 17, 16, 19, 39, 27, 32
-], dtype=int)
+CORE_ASSETS = np.array([], dtype=int)
 
 # Regime guards as finite state machines. Entering a stress state requires
 # the DANGER threshold; leaving it requires falling below the (lower) EXIT
