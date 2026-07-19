@@ -13,7 +13,7 @@ nInst = 0
 nt = 0
 
 pricesFile = "./prices.txt"
-numTestDays = 749
+numTestDays = 250
 
 # parameter for scoring function
 scoreDefaultParam = 1.0
