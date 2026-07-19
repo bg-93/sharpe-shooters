@@ -1,0 +1,17 @@
+window,strategy,file,source,score,mean_pl,std_pl,notes
+0-751,test-day4,old MR book (618 era),local_eval,618.68,,,in-sample 251-500 era; prices.txt had 500 days
+0-751,gen-day1,sharpeShooters7.py (score1k),local_eval,127.91,,,eval scores last 250 days (501-750)
+0-751,gen-day2,candidate_next.py,local_eval,654.62,,,simulate gives 654.36
+0-751,gen-day3,candidate_v2.py,local_sim,650.53,,,eval-exact fees via leadlag_research simulate
+751-850,gen-day1,sharpeShooters7.py (score1k),leaderboard,1000,,,approx reading; round-1 first submission
+751-850,gen-day2,candidate_next.py,leaderboard,1420.84,1431.58,1967.45,hot start; 1431.58/day
+751-900,gen-day3,candidate_v2.py,leaderboard,1000,,,approx reading
+751-900,gen-day1,sharpeShooters7.py (score1k),leaderboard,936.6795,946.3,1516.11,
+751-950,test-day4,old MR book (618 era),leaderboard,1004.5871,1023.13,2197.88,LEADS the board; MR revived on this window
+751-950,gen-day1,sharpeShooters7.py (score1k),leaderboard,706.0288,718.87,1532.98,implied 901-950 chunk ~37/day; fading
+751-950,gen-day2,candidate_next.py,leaderboard,509.8381,513.73,709.81,ANOMALY: std half of cv2's despite shared LL sleeve; implied 851-950 chunk ~-404/day; verify submitted file
+751-950,gen-day3,candidate_v2.py,leaderboard,909.8549,919.52,1498.4,best of our new books on this window
+751-1000,test-day4,old MR book (618 era),leaderboard,,,,final window; fill after 20/07 re-eval
+751-1000,gen-day1,sharpeShooters7.py (score1k),leaderboard,,,,
+751-1000,gen-day2,candidate_next.py,leaderboard,,,,
+751-1000,gen-day3,candidate_v2.py,leaderboard,,,,

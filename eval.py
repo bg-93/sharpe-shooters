@@ -7,7 +7,7 @@ Participants: write getMyPosition(prcSoFar) in teamName.py and update the import
 import numpy as np
 import pandas as pd
 # from teamName import getMyPosition as getPosition
-import sys; sys.path.insert(0, "strategies/next round testing code (research)"); from candidate_next import getMyPosition
+import sys; sys.path.insert(0, "strategies/next round testing code (research)"); from candidate_day4plus import getMyPosition
 
 nInst = 0
 nt = 0
