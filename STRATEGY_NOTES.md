@@ -229,3 +229,28 @@ Replica + hybrids in `strategies/next round testing code (research)/`
 Decision: teamName.py unchanged this round (live 1k). When days
 751-1000 drop, validate candidate_next.py on that fourth window before
 swapping it in for the next hidden window (1001-1250).
+
+## Adaptive Pairs + ML Study (2026-07-19)
+
+Round-1 leaderboard scores are on a GROWING window (751-800: 1420.84,
+751-850: ~1000, 751-900: 928). Incremental means (~570-780/day after
+the hot first 50d) match backtest steady state — no breakdown, but the
+push to remove hardcoding is right for generalization.
+
+- **Adaptive pairs sleeve (adopted)**: re-runs the validated selection
+  procedure every 50d on all history to date (corr prefilter, OLS
+  gamma, half-life<20d, both-halves profitable, annSR>=1.5, max 15/2
+  per name) with **incumbency hysteresis** (sitting pairs keep their
+  seat at annSR>=1.0 + 0.5 rank bonus). Walk-forward OOS 650.74 vs
+  frozen 654.36 — parity with ZERO hardcoded pairs. Without incumbency:
+  624.70 (selection churn costs ~26). Gamma-refit-only on frozen ids:
+  655.18 (proves gammas never need hardcoding).
+- **Feature-ridge ML (rejected)**: ridge predicting r(t+1) from
+  [returns, pair-spread z's, basket deviations] (ml_ridge.py). Pair
+  features: oos 664 but old 269; +adaptive sleeve: oos 684 but old 323.
+  Single-window winner, min-window loser — same failure shape as the
+  MR core. Basket features hurt everywhere. The additive book with the
+  plain 51-return ridge stays.
+- **candidate_v2.py**: adaptive pairs + demeaned tanh LL, standalone,
+  verified early 366.60 (cold-start artifact — irrelevant, deployment
+  always has 750+ days) | old 465.73 | oos 650.53. 750 sim days in ~6s.
