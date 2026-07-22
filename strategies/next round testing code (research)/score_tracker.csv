@@ -1,17 +1,17 @@
 window,strategy,file,source,score,mean_pl,std_pl,notes
-0-751,test-day4,old MR book (618 era),local_eval,618.68,,,in-sample 251-500 era; prices.txt had 500 days
-0-751,gen-day1,sharpeShooters7.py (score1k),local_eval,127.91,,,eval scores last 250 days (501-750)
-0-751,gen-day2,candidate_next.py,local_eval,654.62,,,simulate gives 654.36
-0-751,gen-day3,candidate_v2.py,local_sim,650.53,,,eval-exact fees via leadlag_research simulate
-751-850,gen-day1,sharpeShooters7.py (score1k),leaderboard,1000,,,approx reading; round-1 first submission
-751-850,gen-day2,candidate_next.py,leaderboard,1420.84,1431.58,1967.45,hot start; 1431.58/day
-751-900,gen-day3,candidate_v2.py,leaderboard,1000,,,approx reading
-751-900,gen-day1,sharpeShooters7.py (score1k),leaderboard,936.6795,946.3,1516.11,
-751-950,test-day4,old MR book (618 era),leaderboard,1004.5871,1023.13,2197.88,LEADS the board; MR revived on this window
-751-950,gen-day1,sharpeShooters7.py (score1k),leaderboard,706.0288,718.87,1532.98,implied 901-950 chunk ~37/day; fading
-751-950,gen-day2,candidate_next.py,leaderboard,509.8381,513.73,709.81,ANOMALY: std half of cv2's despite shared LL sleeve; implied 851-950 chunk ~-404/day; verify submitted file
-751-950,gen-day3,candidate_v2.py,leaderboard,909.8549,919.52,1498.4,best of our new books on this window
-751-1000,test-day4,old MR book (618 era),leaderboard,,,,final window; fill after 20/07 re-eval
-751-1000,gen-day1,sharpeShooters7.py (score1k),leaderboard,,,,
-751-1000,gen-day2,candidate_next.py,leaderboard,,,,
-751-1000,gen-day3,candidate_v2.py,leaderboard,,,,
+501-750,test-day1,sharpeShooters.py.zip (SUB-F4859736),platform,-38.37,-38.4,1911.5,testing round; evals used window 501-750
+501-750,test-day2,sharpeShooters.py.zip (SUB-5D9E3A4B),platform,-84.25,-84.2,3333.6,
+501-750,test-day3,sharpeShooters3.py.zip (SUB-77825113),platform,-45.89,-45.9,1090.4,the -45.9/day testing-round MR book
+501-750,test-day4,sharpeShooters4.py.zip (SUB-3A14FA67),platform,,,,original 501-750 eval overwritten by 16/07 re-eval; was ACTIVE carryover into round 1
+501-750,test-day6,sharpeShooters6.py.zip (SUB-98774D49),platform,72.62,124.3,1659.4,
+501-750,test-day7,sharpeShooters7.py.zip (SUB-84E4D0A0),platform,127.91,185.2,1960.4,score1k book; matches local eval exactly (eval parity confirmed)
+751-850,test-day4,sharpeShooters4.py.zip (SUB-3A14FA67),platform re-eval,1004.5871,1023.13,2197.88,re-evaled 16/07 11:01 UTC as ACTIVE carryover; STALE ever since (never re-evaled again)
+751-850,gen-day1,sharpeShooters1.py.zip (SUB-3E282B20),platform,866.9709,893.17,2454.8,score1k+MLR; 16/07 13:58; one-shot lost vs test-day4 1004.59
+751-850,gen-day2,candidate_next.py (SUB-0804F5FC),platform,1420.84,1431.58,1967.45,17/07 04:03; beat 1004.59 -> took ACTIVE seat; holds it since
+751-900,gen-day2,candidate_next.py (SUB-0804F5FC),platform re-eval,936.6795,946.3,1516.11,daily re-eval 18/07 (the 'strat A' reading)
+751-900,gen-day3,sharpeShooters3.py.zip (SUB-DDE34219),platform,509.8381,513.73,709.81,teammate risk-reduced book; one-shot lost vs 936.68
+751-950,gen-day2,candidate_next.py (SUB-0804F5FC),platform re-eval,706.0288,718.87,1532.98,ACTIVE; re-eval 19/07 12:07 UTC; this is the public board row (#42/235)
+751-950,gen-day4,candidate_v2.py (SUB-DA17C787),platform,909.8549,919.52,1498.4,19/07 10:57 UTC - evaluated BEFORE cnext's 12:07 re-eval; lost one-shot vs stale 936.68 by 27pts; RESUBMIT after noon re-eval
+751-950,gen-day5,sharpeShooters8.py (SUB-53848C20),platform,539.2622,557.38,1615.57,candidate_day4plus regime bet; 19/07 20:22; lost vs 706.03; MR-gated book underperformed here
+751-1000,gen-day2,candidate_next.py (SUB-0804F5FC),leaderboard,,,,ACTIVE - fill after 20/07 ~12:00 UTC re-eval (only the active gets re-evaled)
+751-1000,resubmit-cv2,candidate_v2.py,planned,,,,submit AFTER the active's noon re-eval so the one-shot compares vs the fresh (decayed) score

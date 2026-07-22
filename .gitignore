@@ -3,3 +3,6 @@ venv/
 env/
 ENV/
 **/.DS_Store
+
+# Algothon team credentials (never commit)
+dashboard/team_creds.json
