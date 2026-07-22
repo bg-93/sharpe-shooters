@@ -318,6 +318,7 @@ def _leadlag_target_dollars(prcSoFar):
 def getMyPosition(prcSoFar):
     global _prev_nt
 
+    prcSoFar = np.asarray(prcSoFar, dtype=float)
     nt = prcSoFar.shape[1]
 
     # Detect the start of a fresh simulation.
