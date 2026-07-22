@@ -319,11 +319,24 @@ def getMyPosition(prcSoFar):
     global _prev_nt
 
     nt = prcSoFar.shape[1]
+
+    # Detect the start of a fresh simulation.
     if nt <= _prev_nt:
         reset_state()
     _prev_nt = nt
 
-    target_dollars = _pair_target_dollars(prcSoFar)
-    target_dollars += _leadlag_target_dollars(prcSoFar)
+    # Calculate the sleeves separately.
+    pair_target = _pair_target_dollars(prcSoFar)
+    ll_target = _leadlag_target_dollars(prcSoFar)
+
+    # Reserve some position capacity for instruments used by pairs.
+    pair_owned = np.abs(pair_target) > EPS
+    ll_target[pair_owned] *= 0.75
+
+    # Combine the sleeves and enforce instrument limits.
+    target_dollars = pair_target + ll_target
     target_dollars = np.clip(target_dollars, -LIMITS, LIMITS)
-    return (target_dollars / np.maximum(prcSoFar[:, -1], EPS)).astype(int)
+
+    # Convert dollar targets into integer share positions.
+    current_prices = np.maximum(prcSoFar[:, -1], EPS)
+    return (target_dollars / current_prices).astype(int)

@@ -6,8 +6,8 @@ Participants: write getMyPosition(prcSoFar) in teamName.py and update the import
 
 import numpy as np
 import pandas as pd
-# from teamName import getMyPosition as getPosition
-import sys; sys.path.insert(0, "strategies/next round testing code (research)"); from candidate_day4plus import getMyPosition
+from teamName import getMyPosition as getPosition
+#import sys; sys.path.insert(0, "strategies/next round testing code (research)"); from candidate_day4plus import getMyPosition
 
 nInst = 0
 nt = 0
@@ -68,20 +68,20 @@ def calcPL(prcHist, numTestDays):
     """
     Function to loop over days and calculate/store PnLs
     """
-    
+
     # initial values
     cash = 0
     curPos = np.zeros(nInst)
     totDVolume = 0
     value = 0
     comm = 0
-    
+
     todayPLL = []
     _, nt = prcHist.shape
     # start day is the first day to run getPosition() on
     # e.g. startDay=500 if last 250 of 750 days used as test days
     startDay = nt - numTestDays
-    
+
     for t in range(startDay, nt + 1):
         # price history up to and including t, e.g. if t=500, gets first 500 days
         prcHistSoFar = prcHist[:, :t]
@@ -90,7 +90,7 @@ def calcPL(prcHist, numTestDays):
         # trading loop, do not do it on the very last day of the test
         if t < nt:
             # get new positions
-            newPosOrig = getMyPosition(prcHistSoFar)
+            newPosOrig = getPosition(prcHistSoFar)
 
             # clip to position limits, and enforce integer shares
             posLimits = (dlrPosLimit / curPrices).astype(int)
@@ -101,7 +101,7 @@ def calcPL(prcHist, numTestDays):
 
         # change in positions
         deltaPos = newPos - curPos
-        
+
         cash -= curPrices.dot(deltaPos) + comm
 
         # calculate commissions
@@ -109,12 +109,12 @@ def calcPL(prcHist, numTestDays):
         dvolume = np.sum(dvolumes)
         totDVolume += dvolume
         comm = chargeFees(dvolumes, commRate)
-            
+
         curPos = np.array(newPos)
         posValue = curPos.dot(curPrices)
         # PnL is the daily change in portfolio value (cash plus positions)
         todayPL = cash + posValue - value
-        
+
         value = cash + posValue
 
         # calculate return (portfolio value over total dollar volume)
@@ -128,7 +128,7 @@ def calcPL(prcHist, numTestDays):
                 f"Day {t} value: {value:.2f} todayPL: ${todayPL:.2f} $-traded: {totDVolume:.0f} return: {ret:.5f}"
             )
             todayPLL.append(todayPL)
-            
+
     pll = np.array(todayPLL)
     plmu, plstd = (np.mean(pll), np.std(pll))
 
@@ -136,7 +136,7 @@ def calcPL(prcHist, numTestDays):
     annSharpe = 0.0
     if plstd > 0:
         annSharpe = np.sqrt(250) * plmu / plstd
-        
+
     return (plmu, ret, plstd, annSharpe, totDVolume)
 
 meanpl, ret, plstd, sharpe, dvol = calcPL(prcAll, numTestDays)

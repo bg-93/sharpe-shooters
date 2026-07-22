@@ -1,160 +1,301 @@
-import numpy as np
-import numpy as np
+#!/usr/bin/env python3
+"""Adaptive pairs + cross-sectionally demeaned lead-lag strategy.
 
-# Algothon 2026: risk-controlled mean-reversion strategy
-# ------------------------------------------------------
-# Core idea:
-#   1. Use the same 8d / 30d blended mean-reversion signal.
-#   2. Only trade the instruments that showed the cleanest standalone
-#      mean-reversion behaviour on the released 500-day sample.
-#   3. Ignore weak z-score signals so we do not churn on noise.
-#   4. Add mild emergency regime guards for volatility/trend shocks.
-#
-# This is designed to reduce StdDev/turnover versus trading all 51 names.
+The strategy starts with the original 15 frozen pairs. Once 250 observations
+are available, and every 50 observations thereafter, it re-runs the original
+pair-discovery procedure using ONLY data available at that point:
+
+1. Scan all 1,225 pairs among instruments 1..50.
+2. Fit OLS on log prices: log(P_i) = alpha + gamma * log(P_j) + error.
+3. Keep spreads whose AR(1)-implied half-life is below 20 days.
+4. Backtest the same 60-day z-score FSM, including estimated fees.
+5. Require positive PnL in both halves and full-period annualised Sharpe >= 1.5.
+6. Rank robust candidates and select at most 15, with at most two pairs per name.
+
+The selected identities and hedge ratios are frozen until the next refit.
+No future observations are used in a refit. If fewer than 15 pairs qualify,
+only the qualifying pairs are traded.
+"""
+
+import numpy as np
 
 N_INST = 51
-LIMITS = np.array([100000] + [10000] * 50, dtype=float)
+LIMITS = np.array([100000.0] + [10000.0] * 50)
 EPS = 1e-12
 
-# Signal settings
-FAST_LB = 8
-SLOW_LB = 30
-FAST_WEIGHT = 0.75
-SIGNAL_SCALE = 1.2
-POSITION_MULT = 2.0
-MIN_ABS_SIGNAL = 0.25
-
-# Hysteresis: once a position is on, keep it while the signal stays on the
-# same side above a lower exit threshold, instead of flattening the moment
-# it dips under the entry threshold. Saves commission on in-and-out churn.
-EXIT_ABS_SIGNAL = 0.20
-
-# Dollar dead-band: skip retrades when the new target barely moves.
-DEAD_BAND_FRAC = 0.15
-
-# ALGO index-fade sleeve. ALGO is exactly the equal-weight normalized index
-# of the other 50 names and mean-reverts at multi-week horizons (past-20/40d
-# vs next-5d return corr is strongly negative). Fading its trailing move via
-# ALGO itself is the cheapest expression: 0.2bp commission, $100k limit.
-# Params chosen from the centre of an all-window-positive plateau
-# (LB 40 / scale 2.5 / cap 30-60k) across three chronological segments.
-ALGO_FADE_LB = 40
-ALGO_FADE_VOL_WIN = 60
-ALGO_FADE_SCALE = 2.5
-ALGO_FADE_CAP = 60_000.0
-
-# ------------------------------------------------------------------
-# Pairs-trading sleeve.
-# Pairs found by scanning all 1225 combinations: OLS hedge ratio, spread
-# AR(1) half-life < 20d, profitable in BOTH halves of the sample, and
-# full-sample SR >= 1.5, max 2 pairs per name. The selection *procedure*
-# was validated honestly: pairs picked on days 0-249 alone earned
-# 81/day at annSR 3.1 out-of-sample on days 250-499.
-# Trades z-score reversion of spread = log(p_i) - gamma * log(p_j).
-# ------------------------------------------------------------------
-PAIRS = (
-    (7, 40, 0.7086),
-    (25, 37, 0.9352),
-    (1, 20, 0.9836),
-    (13, 45, 1.0132),
-    (33, 40, 0.2577),
-    (10, 46, 1.0331),
-    (33, 42, 0.8358),
-    (31, 43, 0.9692),
-    (18, 28, 0.5642),
-    (41, 50, 0.4977),
-    (8, 27, 1.0222),
-    (18, 35, 0.8471),
-    (37, 46, 0.4059),
-    (36, 41, 0.9137),
-    (35, 42, 0.9163),
+DEFAULT_PAIRS = (
+    (7, 40, 0.7086), (25, 37, 0.9352), (1, 20, 0.9836),
+    (13, 45, 1.0132), (33, 40, 0.2577), (10, 46, 1.0331),
+    (33, 42, 0.8358), (31, 43, 0.9692), (18, 28, 0.5642),
+    (41, 50, 0.4977), (8, 27, 1.0222), (18, 35, 0.8471),
+    (37, 46, 0.4059), (36, 41, 0.9137), (35, 42, 0.9163),
 )
+
+# Pair trading and discovery settings.
 PAIR_LEG = 9_000.0
 PAIR_ROLL = 60
 PAIR_ENTRY = 1.5
 PAIR_EXIT = 0.5
-# Product ownership: names traded by the pairs sleeve are excluded from the
-# main mean-reversion book so the two strategies never fight each other.
-PAIR_OWNED = sorted({i for i, _, _ in PAIRS} | {j for _, j, _ in PAIRS})
+PAIR_FEE = 1.0e-4              # 1 bp per dollar of turnover
+PAIR_MAX_HALFLIFE = 20.0
+PAIR_MIN_SR = 1.5
+PAIR_MAX_COUNT = 15
+PAIR_MAX_PER_NAME = 2
+PAIR_MIN_FIT = 250
+PAIR_FIT_LOOKBACK = 250         # rolling adaptation window
+PAIR_RETRAIN = 50
+PAIR_MIN_TRADES = 2
+PAIR_GAMMA_MIN = 0.05
+PAIR_GAMMA_MAX = 3.0
 
-# ------------------------------------------------------------------
-# Lead-lag sleeve.
-# The 2024 Algothon was won (score 1560/600 teams) with a lead-lag
-# algorithm; our data shows the same structure: ridge-predicting
-# r(t+1) from all r(t) earns walk-forward IC ~0.06 mean with 17/51
-# names above 0.1. Sleeve: refit ridge W every 50 days on all history,
-# full-tilt sign positions on names whose *walk-forward* IC (past live
-# predictions vs realised returns, never in-sample fit) is positive.
-# Validated: every lambda/sizing/selection combo was profitable on
-# honest OOS (train<250/test 250-499), early and time-reversed windows.
-# PnL corr with the rest of the book is -0.14. Pair-owned names are
-# excluded so pair hedge ratios never get clipped.
-# ------------------------------------------------------------------
+# Lead-lag settings (unchanged from the supplied strategy).
 LL_LAM = 400.0
 LL_RETRAIN = 50
 LL_MIN_HIST = 120
-LL_IC_MIN_OBS = 60
-LL_SEL_IC = 0.0
+LL_TEMP = 0.35
 
-# Persistent state across days (backtester calls reset_state between runs).
-_prev_target_dollars = np.zeros(N_INST)
-_prev_nt = -1
-_pair_pos = [0] * len(PAIRS)
+_active_pairs = list(DEFAULT_PAIRS)
+_pair_pos = [0] * len(DEFAULT_PAIRS)
+_pair_last_fit = -1
 
-# Regime FSM state (True = stressed).
-_reg_mkt_stress = False
-_reg_vol_stress = np.zeros(N_INST, dtype=bool)
-_reg_trend_stress = np.zeros(N_INST, dtype=bool)
-
-# Lead-lag sleeve state.
 _ll_W = None
 _ll_mu = None
 _ll_sd = None
 _ll_resid_sd = None
 _ll_last_fit = -1
-_ll_wf_preds = []   # walk-forward predictions already made
-_ll_wf_reals = []   # realised returns those predictions targeted
-_ll_pending = None  # yesterday's prediction awaiting realisation
+_prev_nt = -1
 
 
 def reset_state():
-    global _prev_target_dollars, _prev_nt, _pair_pos
-    global _reg_mkt_stress, _reg_vol_stress, _reg_trend_stress
-    global _ll_W, _ll_mu, _ll_sd, _ll_resid_sd, _ll_last_fit
-    global _ll_wf_preds, _ll_wf_reals, _ll_pending
-    _prev_target_dollars = np.zeros(N_INST)
-    _prev_nt = -1
-    _pair_pos = [0] * len(PAIRS)
-    _reg_mkt_stress = False
-    _reg_vol_stress = np.zeros(N_INST, dtype=bool)
-    _reg_trend_stress = np.zeros(N_INST, dtype=bool)
+    global _active_pairs, _pair_pos, _pair_last_fit
+    global _ll_W, _ll_mu, _ll_sd, _ll_resid_sd, _ll_last_fit, _prev_nt
+
+    _active_pairs = list(DEFAULT_PAIRS)
+    _pair_pos = [0] * len(_active_pairs)
+    _pair_last_fit = -1
+
     _ll_W = None
     _ll_mu = None
     _ll_sd = None
     _ll_resid_sd = None
     _ll_last_fit = -1
-    _ll_wf_preds = []
-    _ll_wf_reals = []
-    _ll_pending = None
+    _prev_nt = -1
+
+
+def _ols_gamma(x, y):
+    """OLS slope in x = alpha + gamma*y + error."""
+    yc = y - y.mean()
+    denom = float(yc @ yc)
+    if denom <= EPS:
+        return None
+    gamma = float((yc @ (x - x.mean())) / denom)
+    if not np.isfinite(gamma):
+        return None
+    if gamma < PAIR_GAMMA_MIN or gamma > PAIR_GAMMA_MAX:
+        return None
+    return gamma
+
+
+def _spread_half_life(spread):
+    """AR(1) half-life from spread_t = c + phi*spread_(t-1) + error."""
+    lag = spread[:-1]
+    nxt = spread[1:]
+    lc = lag - lag.mean()
+    denom = float(lc @ lc)
+    if denom <= EPS:
+        return np.inf
+
+    phi = float((lc @ (nxt - nxt.mean())) / denom)
+    # Positive, stationary AR(1) spreads have a well-behaved reversion time.
+    if not np.isfinite(phi) or phi <= 0.0 or phi >= 1.0:
+        return np.inf
+
+    half_life = -np.log(2.0) / np.log(phi)
+    return float(half_life) if np.isfinite(half_life) else np.inf
+
+
+def _pair_backtest(pi, pj, spread, gamma):
+    """Fee-adjusted backtest matching the live pair FSM and dollar sizing."""
+    n = spread.size
+    if n <= PAIR_ROLL + 2:
+        return None
+
+    pnl = np.zeros(n - 1)
+    state = 0
+    prev_qi = 0.0
+    prev_qj = 0.0
+    entries = 0
+
+    for t in range(PAIR_ROLL, n - 1):
+        win = spread[t - PAIR_ROLL:t]
+        sd = float(win.std())
+        if sd <= EPS:
+            continue
+        z = float((spread[t] - win.mean()) / sd)
+
+        old_state = state
+        if state == 0:
+            if z > PAIR_ENTRY:
+                state = -1
+            elif z < -PAIR_ENTRY:
+                state = 1
+        elif state == 1 and z > -PAIR_EXIT:
+            state = 0
+        elif state == -1 and z < PAIR_EXIT:
+            state = 0
+
+        if old_state == 0 and state != 0:
+            entries += 1
+
+        target_i = state * PAIR_LEG
+        target_j = -state * gamma * PAIR_LEG
+        qi = target_i / max(float(pi[t]), EPS)
+        qj = target_j / max(float(pj[t]), EPS)
+
+        turnover = abs(qi - prev_qi) * pi[t] + abs(qj - prev_qj) * pj[t]
+        trading_pnl = qi * (pi[t + 1] - pi[t]) + qj * (pj[t + 1] - pj[t])
+        pnl[t] = trading_pnl - PAIR_FEE * turnover
+
+        prev_qi, prev_qj = qi, qj
+
+    if entries < PAIR_MIN_TRADES:
+        return None
+
+    live = pnl[PAIR_ROLL:]
+    if live.size < 4:
+        return None
+
+    split = live.size // 2
+    first = live[:split]
+    second = live[split:]
+    pnl_first = float(first.sum())
+    pnl_second = float(second.sum())
+    pnl_total = float(live.sum())
+
+    sd = float(live.std(ddof=0))
+    sr = float(np.sqrt(252.0) * live.mean() / sd) if sd > EPS else -np.inf
+
+    def half_sr(x):
+        sx = float(x.std(ddof=0))
+        return float(np.sqrt(252.0) * x.mean() / sx) if sx > EPS else -np.inf
+
+    sr_first = half_sr(first)
+    sr_second = half_sr(second)
+
+    return pnl_total, pnl_first, pnl_second, sr, sr_first, sr_second, entries
+
+
+def _select_pairs(prcSoFar):
+    """Walk-forward scan of all pairs using only currently observed history."""
+    nt = prcSoFar.shape[1]
+    start = max(0, nt - PAIR_FIT_LOOKBACK)
+    prices = np.maximum(prcSoFar[:, start:nt], EPS)
+    logs = np.log(prices)
+    candidates = []
+
+    for i in range(1, N_INST - 1):
+        xi = logs[i]
+        pi = prices[i]
+        for j in range(i + 1, N_INST):
+            gamma = _ols_gamma(xi, logs[j])
+            if gamma is None:
+                continue
+
+            spread = xi - gamma * logs[j]
+            half_life = _spread_half_life(spread)
+            if half_life >= PAIR_MAX_HALFLIFE:
+                continue
+
+            result = _pair_backtest(pi, prices[j], spread, gamma)
+            if result is None:
+                continue
+
+            total, first, second, sr, sr1, sr2, entries = result
+            if first <= 0.0 or second <= 0.0 or sr < PAIR_MIN_SR:
+                continue
+
+            # Conservative robustness rank: reward full Sharpe and the weaker
+            # half, then total net PnL. This prevents one half dominating.
+            robust_sr = min(sr1, sr2)
+            rank = (robust_sr, sr, total, -half_life, entries)
+            candidates.append((rank, i, j, gamma))
+
+    candidates.sort(key=lambda row: row[0], reverse=True)
+
+    selected = []
+    ownership = np.zeros(N_INST, dtype=int)
+    for _, i, j, gamma in candidates:
+        if ownership[i] >= PAIR_MAX_PER_NAME or ownership[j] >= PAIR_MAX_PER_NAME:
+            continue
+        selected.append((i, j, gamma))
+        ownership[i] += 1
+        ownership[j] += 1
+        if len(selected) >= PAIR_MAX_COUNT:
+            break
+
+    return selected
+
+
+def _maybe_refit_pairs(prcSoFar):
+    global _active_pairs, _pair_pos, _pair_last_fit
+
+    nt = prcSoFar.shape[1]
+    if nt < PAIR_MIN_FIT:
+        return
+    if _pair_last_fit >= 0 and (nt - _pair_last_fit) < PAIR_RETRAIN:
+        return
+
+    selected = _select_pairs(prcSoFar)
+    _active_pairs = selected
+    # Reset the FSM because hedge ratios and spread definitions may have changed.
+    _pair_pos = [0] * len(_active_pairs)
+    _pair_last_fit = nt
+
+
+def _pair_target_dollars(prcSoFar):
+    _maybe_refit_pairs(prcSoFar)
+
+    nt = prcSoFar.shape[1]
+    target = np.zeros(N_INST)
+    if nt <= PAIR_ROLL + 1:
+        return target
+
+    log_all = np.log(np.maximum(prcSoFar, EPS))
+    for k, (i, j, gamma) in enumerate(_active_pairs):
+        spread = log_all[i] - gamma * log_all[j]
+        win = spread[-PAIR_ROLL - 1:-1]
+        sd = float(win.std())
+        if sd <= EPS:
+            continue
+        z = float((spread[-1] - win.mean()) / sd)
+
+        state = _pair_pos[k]
+        if state == 0:
+            if z > PAIR_ENTRY:
+                state = -1
+            elif z < -PAIR_ENTRY:
+                state = 1
+        elif state == 1 and z > -PAIR_EXIT:
+            state = 0
+        elif state == -1 and z < PAIR_EXIT:
+            state = 0
+
+        _pair_pos[k] = state
+        if state != 0:
+            target[i] += state * PAIR_LEG
+            target[j] -= state * gamma * PAIR_LEG
+
+    return target
 
 
 def _leadlag_target_dollars(prcSoFar):
-    """Lead-lag sleeve target dollars for the coming day."""
-    global _ll_W, _ll_mu, _ll_sd, _ll_resid_sd, _ll_last_fit, _ll_pending
+    global _ll_W, _ll_mu, _ll_sd, _ll_resid_sd, _ll_last_fit
 
     nt = prcSoFar.shape[1]
     if nt < LL_MIN_HIST:
         return np.zeros(N_INST)
 
     r = np.diff(np.log(np.maximum(prcSoFar, EPS)), axis=1)
-
-    # Record the realisation of yesterday's prediction (walk-forward IC).
-    if _ll_pending is not None:
-        _ll_wf_preds.append(_ll_pending)
-        _ll_wf_reals.append(r[:, -1])
-        _ll_pending = None
-
-    # Refit the ridge map every LL_RETRAIN days on all available history.
     if _ll_W is None or (nt - _ll_last_fit) >= LL_RETRAIN:
         X = r[:, :-1].T
         Y = r[:, 1:].T
@@ -167,214 +308,35 @@ def _leadlag_target_dollars(prcSoFar):
         _ll_resid_sd = np.maximum(Y.std(0), 1e-8)
         _ll_last_fit = nt
 
-    x = (r[:, -1] - _ll_mu) / _ll_sd
-    pred = x @ _ll_W
-    _ll_pending = pred.copy()
-
-    # Walk-forward IC mask: only trade names whose live predictions have
-    # actually worked so far.
-    mask = np.ones(N_INST)
-    if len(_ll_wf_preds) >= LL_IC_MIN_OBS:
-        P = np.array(_ll_wf_preds)
-        R = np.array(_ll_wf_reals)
-        ics = np.zeros(N_INST)
-        for j in range(N_INST):
-            if P[:, j].std() > 1e-12 and R[:, j].std() > 1e-12:
-                ics[j] = np.corrcoef(P[:, j], R[:, j])[0, 1]
-        mask = (ics > LL_SEL_IC).astype(float)
-
-    tgt = LIMITS * np.sign(pred) * mask
-    tgt[PAIR_OWNED] = 0.0
-    return tgt
-
-# Selected from released data using standalone mean-reversion quality.
-# ALGO is included, plus the strongest non-ALGO names from the 500-day sample.
-CORE_ASSETS = np.array([
-    0, 35, 40, 5, 37, 29, 22, 14, 10, 44,
-    36, 21, 41, 13, 17, 16, 19, 39, 27, 32
-], dtype=int)
-
-# Regime guards as finite state machines. Entering a stress state requires
-# the DANGER threshold; leaving it requires falling below the (lower) EXIT
-# threshold, so the book does not whipsaw risk-on/risk-off when a ratio
-# hovers at the boundary. Stateless daily guards re-risked one day after a
-# shock; the FSM stays cut until conditions genuinely normalise.
-RECENT_VOL_WIN = 10
-BASE_VOL_WIN = 80
-VOL_DANGER = 2.0
-VOL_EXIT = 1.5
-VOL_CUT = 0.65
-
-TREND_WIN = 20
-TREND_LOOKBACK = 60
-TREND_DANGER = 2.5
-TREND_EXIT = 1.5
-TREND_CUT = 0.50
+    pred = ((r[:, -1] - _ll_mu) / _ll_sd) @ _ll_W
+    z = pred / _ll_resid_sd
+    z = z - z.mean()
+    z = z / (z.std() + 1e-9)
+    return LIMITS * np.tanh(z / LL_TEMP)
 
 
 def getMyPosition(prcSoFar):
-    global _prev_target_dollars, _prev_nt
+    global _prev_nt
 
-    nInst, nt = prcSoFar.shape
+    nt = prcSoFar.shape[1]
 
-    if nInst != N_INST:
-        return np.zeros(nInst, dtype=int)
-
-    # Detect a fresh run (history restarted) and reset state.
+    # Detect the start of a fresh simulation.
     if nt <= _prev_nt:
         reset_state()
     _prev_nt = nt
 
-    # Need enough history for 30-day mean reversion.
-    if nt < SLOW_LB + 1:
-        return np.zeros(nInst, dtype=int)
+    # Calculate the sleeves separately.
+    pair_target = _pair_target_dollars(prcSoFar)
+    ll_target = _leadlag_target_dollars(prcSoFar)
 
-    cur = np.maximum(prcSoFar[:, -1], 1.0)
+    # Reserve some position capacity for instruments used by pairs.
+    pair_owned = np.abs(pair_target) > EPS
+    ll_target[pair_owned] *= 0.75
 
-    def zscore_to_past(lb):
-        # Exclude today's price, so we compare today against the recent past.
-        hist = prcSoFar[:, -lb - 1:-1]
-        mu = hist.mean(axis=1)
-        sig = hist.std(axis=1)
-        sig = np.where(sig > 1e-8, sig, 1.0)
-        return (mu - cur) / sig
-
-    z_fast = zscore_to_past(FAST_LB)
-    z_slow = zscore_to_past(SLOW_LB)
-
-    # Positive signal = long, negative signal = short.
-    signal = FAST_WEIGHT * z_fast + (1.0 - FAST_WEIGHT) * z_slow
-
-    # Avoid weak/noisy signals that mostly add turnover.
-    # Hysteresis: new positions require |signal| >= MIN_ABS_SIGNAL, but an
-    # existing position on the same side survives down to EXIT_ABS_SIGNAL.
-    holding_side = np.sign(_prev_target_dollars)
-    keep = (
-        (holding_side != 0)
-        & (np.sign(signal) == holding_side)
-        & (np.abs(signal) >= EXIT_ABS_SIGNAL)
-    )
-    active = (np.abs(signal) >= MIN_ABS_SIGNAL) | keep
-    signal = np.where(active, signal, 0.0)
-
-    # Start with full signal-based desired dollar exposures.
-    target_dollars = LIMITS * np.tanh(SIGNAL_SCALE * signal) * POSITION_MULT
-
-    # Trade only the selected assets, minus names owned by the pairs sleeve.
-    mask = np.zeros(nInst, dtype=float)
-    mask[CORE_ASSETS] = 1.0
-    mask[PAIR_OWNED] = 0.0
-    target_dollars *= mask
-
-    # ------------------------------------------------------------
-    # Emergency regime guards (finite state machines: enter stress at
-    # DANGER, exit only below the lower EXIT threshold)
-    # ------------------------------------------------------------
-    global _reg_mkt_stress, _reg_vol_stress, _reg_trend_stress
-    if nt > BASE_VOL_WIN + RECENT_VOL_WIN + 1:
-        log_prices = np.log(np.maximum(prcSoFar, EPS))
-        log_rets = np.diff(log_prices, axis=1)
-
-        asset_scale = np.ones(nInst, dtype=float)
-        global_scale = 1.0
-
-        # 1. ALGO/index volatility shock FSM (whole-book).
-        recent_market_vol = log_rets[0, -RECENT_VOL_WIN:].std()
-        base_market_vol = log_rets[0, -(BASE_VOL_WIN + RECENT_VOL_WIN):-RECENT_VOL_WIN].std()
-
-        if base_market_vol > 1e-8:
-            market_vol_ratio = recent_market_vol / base_market_vol
-            if market_vol_ratio > VOL_DANGER:
-                _reg_mkt_stress = True
-            elif market_vol_ratio < VOL_EXIT:
-                _reg_mkt_stress = False
-        if _reg_mkt_stress:
-            global_scale *= VOL_CUT
-
-        # 2. Per-asset volatility shock FSM.
-        recent_asset_vol = log_rets[:, -RECENT_VOL_WIN:].std(axis=1)
-        base_asset_vol = log_rets[:, -(BASE_VOL_WIN + RECENT_VOL_WIN):-RECENT_VOL_WIN].std(axis=1)
-        vol_ratio = recent_asset_vol / np.where(base_asset_vol > 1e-8, base_asset_vol, 1.0)
-        _reg_vol_stress = np.where(
-            vol_ratio > VOL_DANGER, True,
-            np.where(vol_ratio < VOL_EXIT, False, _reg_vol_stress),
-        )
-        asset_scale *= np.where(_reg_vol_stress, VOL_CUT, 1.0)
-
-        # 3. Trend FSM. The state tracks whether a strong persistent trend
-        # exists; the cut applies only while our signal fights it.
-        if nt > TREND_LOOKBACK + TREND_WIN:
-            recent_trend = log_prices[:, -1] - log_prices[:, -TREND_WIN - 1]
-            daily_vol = log_rets[:, -TREND_LOOKBACK:].std(axis=1)
-            trend_z = recent_trend / np.where(
-                daily_vol > 1e-8,
-                daily_vol * np.sqrt(TREND_WIN),
-                1.0
-            )
-
-            _reg_trend_stress = np.where(
-                np.abs(trend_z) > TREND_DANGER, True,
-                np.where(np.abs(trend_z) < TREND_EXIT, False, _reg_trend_stress),
-            )
-            fighting_trend = signal * trend_z < 0
-            asset_scale *= np.where(
-                fighting_trend & _reg_trend_stress,
-                TREND_CUT,
-                1.0
-            )
-
-        target_dollars *= asset_scale * global_scale
-
-    # Pairs sleeve: z-score reversion on cointegrated spreads with frozen
-    # hedge ratios. Hysteresis via separate entry/exit thresholds.
-    log_all = np.log(np.maximum(prcSoFar, EPS))
-    if nt > PAIR_ROLL + 1:
-        for k, (i, j, g) in enumerate(PAIRS):
-            s = log_all[i] - g * log_all[j]
-            win = s[-PAIR_ROLL - 1:-1]
-            z = (s[-1] - win.mean()) / (win.std() + EPS)
-            pos = _pair_pos[k]
-            if pos == 0:
-                if z > PAIR_ENTRY:
-                    pos = -1
-                elif z < -PAIR_ENTRY:
-                    pos = 1
-            elif pos == 1 and z > -PAIR_EXIT:
-                pos = 0
-            elif pos == -1 and z < PAIR_EXIT:
-                pos = 0
-            _pair_pos[k] = pos
-            if pos != 0:
-                target_dollars[i] += pos * PAIR_LEG
-                target_dollars[j] -= pos * g * PAIR_LEG
-
-    # ALGO index-fade sleeve: fade ALGO's trailing 40d move, scaled by its
-    # own volatility. Added on top of the main book's ALGO position; the
-    # $100k instrument-0 limit is enforced by the evaluator's clip.
-    if nt > ALGO_FADE_LB + ALGO_FADE_VOL_WIN + 1:
-        lp0 = np.log(np.maximum(prcSoFar[0], EPS))
-        fade_ret = lp0[-1] - lp0[-1 - ALGO_FADE_LB]
-        fade_vol = np.diff(lp0[-(ALGO_FADE_VOL_WIN + 1):]).std()
-        fade_z = fade_ret / max(fade_vol * np.sqrt(ALGO_FADE_LB), 1e-9)
-        target_dollars[0] += -np.clip(fade_z / ALGO_FADE_SCALE, -1.0, 1.0) * ALGO_FADE_CAP
-
-    # Dollar dead-band: if the target barely moved, keep yesterday's target
-    # instead of paying commission on a marginal adjustment. Full exits
-    # (target 0 from an active flatten) always go through.
-    small_change = (
-        (np.abs(target_dollars - _prev_target_dollars) < DEAD_BAND_FRAC * LIMITS)
-        & (target_dollars != 0.0)
-    )
-    target_dollars = np.where(small_change, _prev_target_dollars, target_dollars)
-
-    _prev_target_dollars = target_dollars.copy()
-
-    # Lead-lag sleeve: added AFTER the dead-band (it needs daily
-    # rebalancing; fees are ~1bp vs a ~0.06 daily IC edge) and after
-    # _prev_target_dollars is stored, so the dead-band keeps operating
-    # on the main book only. Total is clipped to per-instrument limits.
-    target_dollars = target_dollars + _leadlag_target_dollars(prcSoFar)
+    # Combine the sleeves and enforce instrument limits.
+    target_dollars = pair_target + ll_target
     target_dollars = np.clip(target_dollars, -LIMITS, LIMITS)
 
-    target_shares = target_dollars / cur
-    return target_shares.astype(int)
+    # Convert dollar targets into integer share positions.
+    current_prices = np.maximum(prcSoFar[:, -1], EPS)
+    return (target_dollars / current_prices).astype(int)
