@@ -350,3 +350,130 @@ Caveats:
   sample size, but canonical modes can still decay if the generator changes.
 - Current `eval.py` is locally modified to score 749 days. Every benchmark
   in the full-evaluator table uses that same setting.
+
+## 1,000-day release: shock-regime ultra-unicorn
+
+The newly supplied days 751–1000 explain the approximately 700 leaderboard
+result.  On those exact 250 days, the submitted pair-free rank-7
+canonical/dense strategy produced mean PnL `778.46`, standard deviation
+`1747.42`, annualized Sharpe `7.04`, and score **763.08**.  Its canonical
+component remained useful, but the dense ridge component nearly stopped
+working during days 901–1000.  `eval.py` now uses its current 250-day test
+window; the earlier 749-day setting documented above was specific to the
+previous release.
+
+### Momentum hypothesis: rejected
+
+Regime momentum was developed only on data through day 750 and then locked
+before its audit on days 751–1000.  It did not validate:
+
+| Frozen momentum rule | New-window score |
+|---|---:|
+| Multi-horizon 2-sigma short skill gate | 0.0 |
+| Multi-horizon 2-sigma long skill gate | 0.0 |
+| Signed adaptive, 60-day horizon | 8.2 |
+| Signed adaptive, 20-day horizon | 0.9 |
+
+Every active momentum overlay reduced the `797.3` curriculum-plus-pairs
+baseline; the least harmful scored `790.3`.  Ordinary 5–120 day momentum,
+dual-horizon confirmation, and breakouts were also negative or
+regime-specific on earlier windows.  The useful meaning of "regime" here is
+therefore **conditional lead-lag structure**, not recent price direction.
+
+Reproduction: `strategies/agent_regime_momentum.py`.
+
+### Final pair-free algorithm
+
+Files:
+
+- submission: `teamName.py`
+- identical preserved candidate:
+  `strategies/ultra_unicorn_regime_candidate.py`
+- broad research runner: `strategies/agent_novel_1000.py`
+
+The algorithm remains compact:
+
+1. Convert the 50 independent stocks to one-day simple returns.  ALGO is not
+   treated as a 51st independent series.
+2. Fit a regularized canonical lead-lag map from today's standardized stock
+   returns to tomorrow's.  Retain only the strongest three predictive
+   canonical modes; a `0.25` dense-ridge view is only a stabilizer.
+3. Label each historical predictor day by the RMS magnitude of its
+   50-dimensional standardized return shock, above or below the historical
+   median.  Fit one additional rank-3 map per state, requiring at least 300
+   observations in each.
+4. Each day, blend the global signal with only `0.10` of the map matching the
+   currently observable quiet/shock state.  This is a gentle conditioner,
+   not a hard regime switch.
+5. Derive ALGO's forecast mechanically from its exact normalized-stock-index
+   identity.  Its coherent dollar position receives a `1.5` boost before
+   clipping because its limit is ten times larger and its commission is five
+   times lower.
+6. Allocate with the proven demeaned `tanh(signal / 0.20)` rule.
+7. Refit every 250 observations.  Starting with the supplied 1,000 days
+   therefore fits once at deployment and freezes coefficients through the
+   expected next 250-day leaderboard window; only the daily observable state
+   changes.
+
+No pairs, hardcoded instrument identities, rolling price trends, or online
+leaderboard-window fitting are used.
+
+### Exact evaluator results
+
+All rows use integer shares, official dollar limits, and delayed commission
+semantics.  The final row fits at day 750 and performs **zero coefficient
+refits** during days 751–1000:
+
+| Strategy on days 751–1000 | Mean/day | Std | Ann. Sharpe | Score |
+|---|---:|---:|---:|---:|
+| Previous `teamName.py` | 778.46 | 1747.42 | 7.04 | **763.08** |
+| Previous curriculum + pairs | 811.24 | 1652.79 | 7.76 | **797.99** |
+| Frozen rank-3 base, no regime | 1038.10 | 1883.27 | 8.72 | **1024.61** |
+| **Frozen shock-regime candidate** | **1050.80** | **1894.85** | **8.77** | **1037.31** |
+
+The final candidate improves score by `274.23`, or **35.9%**, over the
+previous submitted strategy.  Its mean fee was `48.53` per day and official
+`eval.py` dollar volume was `136,439,558`.
+
+The new-window 50-day score sequence was:
+
+`1333.5 / 1092.0 / 1269.7 / 171.1 / 1297.9`.
+
+Every block remained profitable.  The weak days 901–950 interval was not
+eliminated, but it no longer caused the dense-ridge collapse seen in the
+previous book.  The two sequential 125-day half scores were `1235.1` and
+`837.6`.
+
+Nearby choices form a useful plateau:
+
+- regime weights `0.00 / 0.10 / 0.25` scored approximately
+  `1024.6 / 1037.3 / 1032.2`;
+- ALGO position boosts `1.00 / 1.25 / 1.50 / 2.00` scored approximately
+  `1022.4 / 1034.4 / 1037.3 / 1035.9`;
+- rank-3 shrinkage from `0.10` through `0.60` and dense weights from `0.10`
+  through `0.50` remained strongly profitable in the adaptive ablations.
+
+### Why pairs were omitted
+
+The frozen pairs surprisingly remained positive in all five new 50-day
+blocks and were weakly correlated with the canonical core.  Adding them can
+raise the released-window score further, but their identities were selected
+on earlier released data and their economic stability is less convincing.
+The final `teamName.py` therefore takes the cleaner result: **1037.31 with no
+pairs at all**.
+
+### Interpretation and caveat
+
+The evidence points to a persistent low-dimensional directed dependency:
+the first three canonical modes strengthened as sample size increased,
+whereas modes 4–7 and the broad dense map were less reliable.  Shock
+conditioning adds only about 13 score points to the strict frozen base; the
+real alpha is the stable rank-3 lead-lag structure, not an elaborate regime
+classifier.
+
+Days 751–1000 were initially a clean audit for the previous candidate, but
+the new rank and shock architecture were investigated after that audit was
+opened.  They are now legitimate training data for deployment after day
+1,000, not a second untouched test set.  The frozen-coefficient replay,
+positive subwindows, and parameter plateaus reduce overfit risk, but only
+the future leaderboard days can confirm the approximately 1,000 score.

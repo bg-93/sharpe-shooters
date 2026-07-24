@@ -230,10 +230,11 @@ class CoherentStockIndex:
     """Forecast stocks only; derive ALGO from its exact normalized-index identity."""
 
     def __init__(self, model="ridge", rank=7, shrink=.25, lam=400,
-                 retrain=50, temp=.25, include_mean=False):
+                 retrain=50, temp=.25, include_mean=False, lookback=None):
         self.model, self.rank, self.shrink = model, rank, shrink
         self.lam, self.retrain, self.temp = lam, retrain, temp
         self.include_mean = include_mean
+        self.lookback = lookback
         self.last_fit = -1
         self.coef = None
 
@@ -246,6 +247,8 @@ class CoherentStockIndex:
     def _fit(self, p):
         # Simple returns respect the exact linear index construction.
         all_r = p[:, 1:] / p[:, :-1] - 1.0
+        if self.lookback:
+            all_r = all_r[:, -self.lookback - 1:]
         r = all_r[1:]
         x, y = r[:, :-1].T, r[:, 1:].T
         self.mu, self.sd = x.mean(0), x.std(0) + EPS
