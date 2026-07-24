@@ -5,6 +5,10 @@ Forecast the 50 stocks from their lagged simple returns using two views:
 regularized canonical predictive modes and dense ridge. Derive ALGO's
 forecast from its exact normalized-index identity, blend the two normalized
 views, then use the proven cross-sectional tanh allocation.
+
+ON THE SUBMISSION THIS YEILDED 763 score.
+The day 2 submission strategy yeilded 500 on this so its the next best strategy rn.
+
 """
 
 import numpy as np
